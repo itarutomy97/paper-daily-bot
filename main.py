@@ -371,7 +371,7 @@ def main():
     # 設定取得
     query = os.getenv("ARXIV_QUERY", "cat:cs.AI OR cat:cs.LG")
     max_papers = int(os.getenv("MAX_PAPERS", "100"))
-    min_citations = int(os.getenv("MIN_CITATIONS", "0")
+    min_citations = int(os.getenv("MIN_CITATIONS", "0"))
 
     # 通知先（Slack or Email）
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
