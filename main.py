@@ -234,7 +234,7 @@ class SlackNotifier:
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": f"📚 {today} の論文ア更新（{count}件）"
+                "text": f"🔥 {today} 人気論文 Top{count}"
             }
         }
 
@@ -295,7 +295,7 @@ def main():
 
     # 設定取得
     query = os.getenv("ARXIV_QUERY", "cat:cs.AI OR cat:cs.LG")
-    max_papers = int(os.getenv("MAX_PAPERS", "20"))
+    max_papers = int(os.getenv("MAX_PAPERS", "100"))
     min_citations = int(os.getenv("MIN_CITATIONS", "0"))
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
 
@@ -323,6 +323,11 @@ def main():
     if not papers:
         logger.info("フィルタ後、論文がありませんでした")
         return
+
+    # 人気順（引用数降順）にソートしてTop10
+    papers = sorted(papers, key=lambda p: p.citation_count, reverse=True)
+    papers = papers[:10]
+    logger.info(f"人気Top10: {len(papers)}件（最高引用数={papers[0].citation_count if papers else 0}）")
 
     # 4. LLMで要約（オプション）
     openai_key = os.getenv("OPENAI_API_KEY")
