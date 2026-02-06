@@ -1,0 +1,19 @@
+# Paper Slack Bot Requirements
+
+# HTTP requests
+requests>=2.31.0
+
+# arXiv API
+arxiv>=2.1.0
+
+# LLM
+openai>=1.12.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Date handling
+python-dateutil>=2.8.2
+
+# Slack SDK (optional, for richer messages)
+slack-sdk>=3.26.0
