@@ -279,6 +279,81 @@ class SlackNotifier:
         return text[:max_length-3] + "..."
 
 
+class EmailNotifier:
+    """Emailで通知を送るクラス（Resend使用）"""
+
+    def __init__(self, api_key: str, from_email: str, to_email: str):
+        self.api_key = api_key
+        self.from_email = from_email
+        self.to_email = to_email
+        self.base_url = "https://api.resend.com/emails"
+
+    def send_papers(self, papers: List[Paper]) -> bool:
+        """
+        論文リストをEmailで送信
+
+        Args:
+            papers: 論文リスト
+
+        Returns:
+            成功かどうか
+        """
+        if not papers:
+            logger.info("送信する論文がありません")
+            return True
+
+        today = datetime.now().strftime("%Y/%m/%d")
+        count = len(papers)
+
+        # HTMLメール構築
+        html_parts = [f"<h2>🔥 {today} 人気論文 Top{count}</h2>"]
+
+        for i, paper in enumerate(papers, 1):
+            citation_info = f" | 引用{paper.citation_count}回" if paper.citation_count > 0 else ""
+            summary_text = paper.ai_summary if paper.ai_summary else paper.summary[:300] + "..."
+
+            html_parts.append(f"""
+            <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
+                <h3>{i}. {paper.title}</h3>
+                <p><em>{', '.join(paper.authors[:3])}{' et al.' if len(paper.authors) > 3 else ''}</em></p>
+                <p>{summary_text}{citation_info}</p>
+                <p>
+                    <a href="{paper.url}">arXiv</a> | <a href="{paper.pdf_url}">PDF</a>
+                </p>
+            </div>
+            """)
+
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+            {''.join(html_parts)}
+        </body>
+        </html>
+        """
+
+        # 送信
+        payload = {
+            "from": self.from_email,
+            "to": [self.to_email],
+            "subject": f"🔥 {today} 人気論文 Top{count}",
+            "html": html_content
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(self.base_url, json=payload, headers=headers, timeout=10)
+            response.raise_for_status()
+            logger.info(f"Emailを送信しました: {count}件")
+            return True
+        except Exception as e:
+            logger.error(f"Email送信エラー: {e}")
+            return False
+
+
 def filter_papers(papers: List[Paper], min_citations: int = 0) -> List[Paper]:
     """論文をフィルタリング"""
     filtered = [p for p in papers if p.citation_count >= min_citations]
@@ -296,11 +371,16 @@ def main():
     # 設定取得
     query = os.getenv("ARXIV_QUERY", "cat:cs.AI OR cat:cs.LG")
     max_papers = int(os.getenv("MAX_PAPERS", "100"))
-    min_citations = int(os.getenv("MIN_CITATIONS", "0"))
-    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+    min_citations = int(os.getenv("MIN_CITATIONS", "0")
 
-    if not webhook_url:
-        logger.error("SLACK_WEBHOOK_URLが設定されていません")
+    # 通知先（Slack or Email）
+    webhook_url = os.getenv("SLACK_WEBHOOK_URL")
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    email_from = os.getenv("EMAIL_FROM", "Paper Daily <papers@yourdomain.com>")
+    email_to = os.getenv("EMAIL_TO")
+
+    if not webhook_url and not (resend_api_key and email_to):
+        logger.error("通知先が設定されていません（SLACK_WEBHOOK_URL または RESEND_API_KEY + EMAIL_TO）")
         sys.exit(1)
 
     # 1. arXivから論文取得
@@ -341,14 +421,25 @@ def main():
             for paper in papers:
                 paper.ai_summary = summarizer.summarize(paper)
 
-    # 5. Slackに送信
-    notifier = SlackNotifier(webhook_url)
-    success = notifier.send_papers(papers)
+    # 5. 通知送信
+    success_count = 0
 
-    if success:
-        logger.info("完了しました")
+    # Slack
+    if webhook_url:
+        notifier = SlackNotifier(webhook_url)
+        if notifier.send_papers(papers):
+            success_count += 1
+
+    # Email
+    if resend_api_key and email_to:
+        notifier = EmailNotifier(resend_api_key, email_from, email_to)
+        if notifier.send_papers(papers):
+            success_count += 1
+
+    if success_count > 0:
+        logger.info(f"完了しました（{success_count}件送信）")
     else:
-        logger.error("失敗しました")
+        logger.error("すべての送信に失敗しました")
         sys.exit(1)
 
 

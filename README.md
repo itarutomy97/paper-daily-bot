@@ -1,12 +1,12 @@
 # Paper Daily Bot
 
-arXivから論文を収集し、Slackで人気Top10を通知するボット。
+arXivから論文を収集し、**Email or Slack**で人気Top10を通知するボット。
 
 ## Features
 
 - arXiv APIで1日分の論文を100件取得
 - Semantic Scholar APIで引用数取得
-- **引用数順Top10**をSlackで通知
+- **引用数順Top10**を通知
 - LLM要約対応（オプション）
 
 ## ロジック
@@ -16,7 +16,7 @@ arXivから論文を収集し、Slackで人気Top10を通知するボット。
 2. Semantic Scholarで引用数付与
 3. 引用数降順にソートしてTop10抽出
 4. LLM要約生成（オプション）
-5. Slack送信
+5. Email or Slackで送信
 ```
 
 ## Local Setup
@@ -40,25 +40,28 @@ python main.py
 
 | Type | Name | Value | 必須 |
 |------|------|-------|------|
-| Secret | `SLACK_WEBHOOK_URL` | SlackのWebhook URL | ✅ |
-| Secret | `SEMANTIC_SCHOLAR_API_KEY` | （オプション）APIキー | - |
-| Secret | `OPENAI_API_KEY` | （オプション）要約用 | - |
+| Secret | `RESEND_API_KEY` | Resend APIキー | Email用 ✅ |
+| Secret | `EMAIL_TO` | 宛先メールアドレス | Email用 ✅ |
+| Secret | `SLACK_WEBHOOK_URL` | Slack Webhook URL | Slack用 |
+| Variable | `EMAIL_FROM` | `"Paper Daily <onboarding@resend.dev>"` | - |
 | Variable | `ARXIV_QUERY` | `cat:cs.AI OR cat:cs.LG` | - |
 | Variable | `MAX_PAPERS` | `100` | - |
 | Variable | `DAYS_BACK` | `1` | - |
 | Variable | `MIN_CITATIONS` | `0` | - |
 
-### 2. Slack Webhook URL取得
+**SlackとEmail両方設定可能。少なくとも1つあれば動作します。**
 
-1. Slack App作成: https://api.slack.com/apps
-2. Incoming Webhooksを有効化
-3. Webhook URLをコピーしてGitHub Secretsに設定
+### 2. Resend APIキー取得
+
+1. https://resend.com/signup で登録（無料）
+2. API Keyを作成
+3. GitHub Secretsに `RESEND_API_KEY` として設定
 
 ### 3. Workflowを手動実行
 
 **Actions → Daily Paper Bot → Run workflow** をクリック
 
-成功すれば、毎日9:00 JSTにSlackで人気論文Top10が届きます！
+成功すれば、毎日9:00 JSTに人気論文Top10が届きます！
 
 ## LLM要約（オプション）
 
@@ -76,5 +79,5 @@ python main.py
 | GitHub Actions | 無料 |
 | arXiv API | 無料 |
 | Semantic Scholar | 無料 |
-| Slack Webhook | 無料 |
+| Resend Email | 無料（3000通/月） |
 | OpenAI要約 | ~$0.02/月（オプション） |

@@ -30,8 +30,15 @@ jobs:
           MAX_PAPERS: ${{ vars.MAX_PAPERS }}
           DAYS_BACK: ${{ vars.DAYS_BACK }}
           MIN_CITATIONS: ${{ vars.MIN_CITATIONS }}
+          # Slack (optional)
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          # Email (optional)
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          # Semantic Scholar (optional)
           SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+          # LLM Summary (optional)
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           SUMMARY_MAX_LENGTH: ${{ vars.SUMMARY_MAX_LENGTH }}
