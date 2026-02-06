@@ -1,106 +1,80 @@
 # Paper Daily Bot
 
-arXivから論文を収集し、毎日メール/Slackで通知するTypeScript製ボット。
+arXivから論文を収集し、Slackで人気Top10を通知するボット。
 
 ## Features
 
-- arXiv APIで論文取得
+- arXiv APIで1日分の論文を100件取得
 - Semantic Scholar APIで引用数取得
-- 引用数によるフィルタリング
-- **Email or Slack**で通知
+- **引用数順Top10**をSlackで通知
+- LLM要約対応（オプション）
 
-## Setup
+## ロジック
+
+```
+1. arXivから1日分100件取得
+2. Semantic Scholarで引用数付与
+3. 引用数降順にソートしてTop10抽出
+4. LLM要約生成（オプション）
+5. Slack送信
+```
+
+## Local Setup
 
 ```bash
 # Install dependencies
-pnpm install
+pip install -r requirements.txt
 
 # Copy env file
 cp .env.example .env
 
 # Edit .env with your settings
-pnpm tsx src/index.ts
+python main.py
 ```
 
 ## GitHub Actions - 毎日自動送信
 
-### 1. GitHubリポジトリ作成
-
-```bash
-cd /Users/itarutomy/paper-slack-bot
-git init
-git add .
-git commit -m "Initial commit"
-```
-
-GitHubで新しいリポジトリを作成してプッシュ:
-```bash
-git remote add origin https://github.com/YOUR_USERNAME/paper-daily-bot.git
-git branch -M main
-git push -u origin main
-```
-
-### 2. GitHubのSecretsとVariablesを設定
+### 1. GitHubのSecretsとVariablesを設定
 
 **Settings → Secrets and variables → Actions**
 
-| Type | Name | Value |
-|------|------|-------|
-| Secret | `RESEND_API_KEY` | `re_L9fD9y9B_C26b9BphKU1PteYwBsVCYgRt` |
-| Secret | `EMAIL_TO` | `tomtar9779@gmail.com` |
-| Variable | `NOTIFY_TYPE` | `email` |
-| Variable | `EMAIL_FROM` | `"Paper Daily <onboarding@resend.dev>"` |
-| Variable | `ARXIV_QUERY` | `cat:cs.AI OR cat:cs.LG` |
-| Variable | `MAX_PAPERS` | `5` |
-| Variable | `DAYS_BACK` | `7` |
-| Variable | `MIN_CITATIONS` | `0` |
+| Type | Name | Value | 必須 |
+|------|------|-------|------|
+| Secret | `SLACK_WEBHOOK_URL` | SlackのWebhook URL | ✅ |
+| Secret | `SEMANTIC_SCHOLAR_API_KEY` | （オプション）APIキー | - |
+| Secret | `OPENAI_API_KEY` | （オプション）要約用 | - |
+| Variable | `ARXIV_QUERY` | `cat:cs.AI OR cat:cs.LG` | - |
+| Variable | `MAX_PAPERS` | `100` | - |
+| Variable | `DAYS_BACK` | `1` | - |
+| Variable | `MIN_CITATIONS` | `0` | - |
+
+### 2. Slack Webhook URL取得
+
+1. Slack App作成: https://api.slack.com/apps
+2. Incoming Webhooksを有効化
+3. Webhook URLをコピーしてGitHub Secretsに設定
 
 ### 3. Workflowを手動実行
 
 **Actions → Daily Paper Bot → Run workflow** をクリック
 
-成功すれば、毎日9:00 JSTにメールが届きます！
+成功すれば、毎日9:00 JSTにSlackで人気論文Top10が届きます！
 
-## Notification Types
+## LLM要約（オプション）
 
-### Email (Resend)
+`OPENAI_API_KEY`を設定すると、gpt-4o-miniで日本語要約を生成します。
 
-- 無料: 3000通/月
-- サインアップ: https://resend.com/signup
+- コスト: 約$0.02/月（5論文/日）
+- 設定:
+  - `OPENAI_MODEL`: `gpt-4o-mini`（デフォルト）
+  - `SUMMARY_MAX_LENGTH`: `200`（文字数）
 
-```bash
-NOTIFY_TYPE=email
-RESEND_API_KEY=re_xxxxxx
-EMAIL_FROM="Paper Daily <onboarding@resend.dev>"
-EMAIL_TO=you@example.com
-```
+## コスト
 
-### Slack
-
-```bash
-NOTIFY_TYPE=slack
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
-```
-
-## Usage
-
-```bash
-# Run
-pnpm dev
-
-# Test
-pnpm test
-
-# Type check
-pnpm typecheck
-```
-
-## Architecture
-
-```
-Notifier (interface)
-├── SlackNotifier  - Slack Webhook
-└── EmailNotifier  - Resend API
-
-PaperBot (DI for Notifier)
-```
+| サービス | コスト |
+|----------|--------|
+| GitHub Actions | 無料 |
+| arXiv API | 無料 |
+| Semantic Scholar | 無料 |
+| Slack Webhook | 無料 |
+| OpenAI要約 | ~$0.02/月（オプション） |
