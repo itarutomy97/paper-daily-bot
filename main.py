@@ -202,6 +202,9 @@ class HuggingFaceDailyFetcher:
                 )
                 papers.append(paper)
 
+            # upvotes降順にソート
+            papers = sorted(papers, key=lambda p: p.citation_count, reverse=True)
+
             logger.info(f"Hugging Faceから{len(papers)}件の論文を取得しました")
             return papers
 
