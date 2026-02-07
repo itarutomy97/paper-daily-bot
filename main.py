@@ -427,23 +427,6 @@ class EmailNotifier:
         except Exception as e:
             logger.error(f"Email送信エラー: {e}")
             return False
-            "subject": f"🔥 {today} 人気論文 Top{count}",
-            "html": html_content
-        }
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        try:
-            response = requests.post(self.base_url, json=payload, headers=headers, timeout=10)
-            response.raise_for_status()
-            logger.info(f"Emailを送信しました: {count}件")
-            return True
-        except Exception as e:
-            logger.error(f"Email送信エラー: {e}")
-            return False
 
 
 def filter_papers(papers: List[Paper], min_citations: int = 0) -> List[Paper]:
