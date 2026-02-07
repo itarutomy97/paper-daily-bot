@@ -1,22 +1,21 @@
 # Paper Daily Bot
 
-arXivから論文を収集し、**Email or Slack**で人気Top10を通知するボット。
+arXivから論文を収集し、**Email or Slack**で人気Top10を通知するボット（Python製）。
 
 ## Features
 
-- arXiv APIで1日分の論文を100件取得
-- Semantic Scholar APIで引用数取得
-- **引用数順Top10**を通知
+- Hugging Face Daily Papers APIでupvotes順に論文取得
+- **通常Top10 ＋ キーワードTop10**の20件を1メールで送信
 - LLM要約対応（オプション）
+- 毎日9:00 JSTに自動実行
 
 ## ロジック
 
 ```
-1. arXivから1日分100件取得
-2. Semantic Scholarで引用数付与
-3. 引用数降順にソートしてTop10抽出
-4. LLM要約生成（オプション）
-5. Email or Slackで送信
+1. Hugging Face Daily Papersからupvotes順に論文取得
+2. 通常Top10抽出
+3. キーワード指定があればキーワードTop10も抽出
+4. 両方を1通のEmailで送信
 ```
 
 ## Local Setup
@@ -42,42 +41,35 @@ python main.py
 |------|------|-------|------|
 | Secret | `RESEND_API_KEY` | Resend APIキー | Email用 ✅ |
 | Secret | `EMAIL_TO` | 宛先メールアドレス | Email用 ✅ |
-| Secret | `SLACK_WEBHOOK_URL` | Slack Webhook URL | Slack用 |
-| Variable | `EMAIL_FROM` | `"Paper Daily <onboarding@resend.dev>"` | - |
-| Variable | `ARXIV_QUERY` | `cat:cs.AI OR cat:cs.LG` | - |
-| Variable | `MAX_PAPERS` | `100` | - |
-| Variable | `DAYS_BACK` | `1` | - |
-| Variable | `MIN_CITATIONS` | `0` | - |
-
-**SlackとEmail両方設定可能。少なくとも1つあれば動作します。**
+| Variable | `EMAIL_FROM` | `onboarding@resend.dev` | - |
+| Variable | `USE_HUGGINGFACE` | `true` | - |
+| Variable | `KEYWORD_FILTER` | `RAG` など | - |
+| Variable | `MAX_PAPERS` | `50` | - |
 
 ### 2. Resend APIキー取得
 
 1. https://resend.com/signup で登録（無料）
 2. API Keyを作成
-3. GitHub Secretsに `RESEND_API_KEY` として設定
+3. GitHub Secretsに設定
 
 ### 3. Workflowを手動実行
 
-**Actions → Daily Paper Bot → Run workflow** をクリック
+**Actions → Daily Paper Bot → Run workflow**
 
-成功すれば、毎日9:00 JSTに人気論文Top10が届きます！
+成功すれば、毎日9:00 JSTに人気論文Top20が届きます！
 
 ## LLM要約（オプション）
 
 `OPENAI_API_KEY`を設定すると、gpt-4o-miniで日本語要約を生成します。
 
 - コスト: 約$0.02/月（5論文/日）
-- 設定:
-  - `OPENAI_MODEL`: `gpt-4o-mini`（デフォルト）
-  - `SUMMARY_MAX_LENGTH`: `200`（文字数）
+- Hugging Faceのai_summaryがある場合はそれを使用
 
 ## コスト
 
 | サービス | コスト |
 |----------|--------|
 | GitHub Actions | 無料 |
-| arXiv API | 無料 |
-| Semantic Scholar | 無料 |
+| Hugging Face API | 無料 |
 | Resend Email | 無料（3000通/月） |
 | OpenAI要約 | ~$0.02/月（オプション） |
