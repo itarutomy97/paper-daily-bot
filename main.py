@@ -350,45 +350,58 @@ class EmailNotifier:
         self.to_email = to_email
         self.base_url = "https://api.resend.com/emails"
 
-    def send_papers(self, papers: List[Paper]) -> bool:
+    def send_papers_sections(self, papers_sections: List[tuple]) -> bool:
         """
-        論文リストをEmailで送信
+        複数セクションの論文リストをEmailで送信
 
         Args:
-            papers: 論文リスト
+            papers_sections: [(セクション名, 論文リスト), ...] のリスト
 
         Returns:
             成功かどうか
         """
-        if not papers:
+        if not papers_sections:
             logger.info("送信する論文がありません")
             return True
 
         today = datetime.now().strftime("%Y/%m/%d")
-        count = len(papers)
+        total_count = sum(len(papers) for _, papers in papers_sections)
 
         # HTMLメール構築
-        html_parts = [f"<h2>🔥 {today} 人気論文 Top{count}</h2>"]
+        html_parts = [f"<h1>🔥 {today} AI論文ランキング（全{total_count}件）</h1>"]
 
-        for i, paper in enumerate(papers, 1):
-            citation_info = f" | 引用{paper.citation_count}回" if paper.citation_count > 0 else ""
-            summary_text = paper.ai_summary if paper.ai_summary else paper.summary[:300] + "..."
+        for section_name, papers in papers_sections:
+            if not papers:
+                continue
 
-            html_parts.append(f"""
-            <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
-                <h3>{i}. {paper.title}</h3>
-                <p><em>{', '.join(paper.authors[:3])}{' et al.' if len(paper.authors) > 3 else ''}</em></p>
-                <p>{summary_text}{citation_info}</p>
-                <p>
-                    <a href="{paper.url}">arXiv</a> | <a href="{paper.pdf_url}">PDF</a>
-                </p>
-            </div>
-            """)
+            html_parts.append(f"<h2>📚 {section_name}（{len(papers)}件）</h2>")
+
+            for i, paper in enumerate(papers, 1):
+                # Hugging Face URL判定
+                hf_url = f"https://huggingface.co/papers/{paper.arxiv_id}" if "huggingface.co" in paper.url else paper.url
+
+                upvote_info = f" | 👍 {paper.citation_count} upvotes" if paper.citation_count > 0 else ""
+                summary_text = paper.ai_summary if paper.ai_summary else paper.summary[:300] + "..."
+
+                html_parts.append(f"""
+                <div style="margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px;">
+                    <h3>{i}. {paper.title}</h3>
+                    <p><em>{', '.join(paper.authors[:3])}{' et al.' if len(paper.authors) > 3 else ''}</em></p>
+                    <p>{summary_text}{upvote_info}</p>
+                    <p>
+                        <a href="{hf_url}">Hugging Face</a> | <a href="https://arxiv.org/abs/{paper.arxiv_id}">arXiv</a> | <a href="{paper.pdf_url}">PDF</a>
+                    </p>
+                </div>
+                """)
 
         html_content = f"""
         <html>
-        <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;">
+        <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
             {''.join(html_parts)}
+            <hr style="margin-top: 30px;">
+            <p style="color: #666; font-size: 12px;">
+                Powered by <a href="https://huggingface.co/papers">Hugging Face Papers</a>
+            </p>
         </body>
         </html>
         """
@@ -397,6 +410,23 @@ class EmailNotifier:
         payload = {
             "from": self.from_email,
             "to": [self.to_email],
+            "subject": f"🔥 {today} AI論文ランキング（全{total_count}件）",
+            "html": html_content
+        }
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(self.base_url, json=payload, headers=headers, timeout=10)
+            response.raise_for_status()
+            logger.info(f"Emailを送信しました: {total_count}件")
+            return True
+        except Exception as e:
+            logger.error(f"Email送信エラー: {e}")
+            return False
             "subject": f"🔥 {today} 人気論文 Top{count}",
             "html": html_content
         }
@@ -448,43 +478,57 @@ def main():
         sys.exit(1)
 
     # 1. 論文取得（Hugging Face or arXiv）
+    all_papers_sections = []  # 複数セクション用
+
     if use_huggingface:
         logger.info("Hugging Face Daily Papersを使用します")
         fetcher = HuggingFaceDailyFetcher(limit=max_papers)
-        papers = fetcher.fetch_papers(keyword=keyword_filter if keyword_filter else None)
+
+        # 通常のTop10
+        general_papers = fetcher.fetch_papers(keyword=None)
+        if general_papers:
+            all_papers_sections.append(("人気Top10", general_papers[:10]))
+
+        # キーワード関連のTop10
+        if keyword_filter:
+            keyword_papers = fetcher.fetch_papers(keyword=keyword_filter)
+            if keyword_papers:
+                all_papers_sections.append((f"{keyword_filter} Top10", keyword_papers[:10]))
+
+        if not all_papers_sections:
+            logger.info("新しい論文はありませんでした")
+            return
+
     else:
         logger.info("arXiv APIを使用します")
         fetcher = ArxivFetcher(query, max_papers)
         papers = fetcher.fetch_papers(days_back=1)
 
-    if not papers:
-        logger.info("新しい論文はありませんでした")
-        return
-
-    # Hugging Faceの場合は既にupvotes順なのでソート不要
-    if use_huggingface:
-        papers = papers[:10]  # Top10
-        logger.info(f"Hugging Face人気Top10: {len(papers)}件（最高upvotes={papers[0].citation_count if papers else 0}）")
-    else:
-        # 2. Semantic Scholarで情報付与
-        api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-        if api_key or True:  # APIキーなしでも無料枠で動作
-            semantic_client = SemanticScholarClient(api_key)
-            papers = semantic_client.enrich_papers(papers)
-
-        # 3. フィルタリング
-        papers = filter_papers(papers, min_citations)
-
         if not papers:
-            logger.info("フィルタ後、論文がありませんでした")
+            logger.info("新しい論文はありませんでした")
             return
 
-        # 人気順（引用数降順）にソートしてTop10
-        papers = sorted(papers, key=lambda p: p.citation_count, reverse=True)
-        papers = papers[:10]
-        logger.info(f"人気Top10: {len(papers)}件（最高引用数={papers[0].citation_count if papers else 0}）")
+        all_papers_sections.append(("人気Top10", papers))
 
-    # 4. LLMで要約（オプション、Hugging Faceにはai_summaryがあるのでスキップ可能）
+    # 2. Semantic Scholarで情報付与 & 3. フィルタリング（arXivの場合）
+    if not use_huggingface:
+        api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        if api_key or True:
+            semantic_client = SemanticScholarClient(api_key)
+            for i, (section_name, papers) in enumerate(all_papers_sections):
+                all_papers_sections[i] = (section_name, semantic_client.enrich_papers(papers))
+
+        # フィルタリング＆ソート
+        processed_sections = []
+        for section_name, papers in all_papers_sections:
+            papers = filter_papers(papers, min_citations)
+            if papers:
+                papers = sorted(papers, key=lambda p: p.citation_count, reverse=True)
+                papers = papers[:10]
+                processed_sections.append((section_name, papers))
+        all_papers_sections = processed_sections
+
+    # 4. LLMで要約（オプション）
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -493,28 +537,29 @@ def main():
 
         if summarizer.enabled:
             logger.info("要約を生成します...")
-            for paper in papers:
-                # Hugging Faceのai_summaryがなければ生成
-                if not paper.ai_summary:
-                    paper.ai_summary = summarizer.summarize(paper)
+            for section_name, papers in all_papers_sections:
+                for paper in papers:
+                    if not paper.ai_summary:
+                        paper.ai_summary = summarizer.summarize(paper)
 
     # 5. 通知送信
     success_count = 0
-
-    # Slack
-    if webhook_url:
-        notifier = SlackNotifier(webhook_url)
-        if notifier.send_papers(papers):
-            success_count += 1
+    total_papers = sum(len(papers) for _, papers in all_papers_sections)
 
     # Email
     if resend_api_key and email_to:
         notifier = EmailNotifier(resend_api_key, email_from, email_to)
-        if notifier.send_papers(papers):
+        if notifier.send_papers_sections(all_papers_sections):
+            success_count += 1
+
+    # Slack（最初のセクションのみ送信）
+    if webhook_url and all_papers_sections:
+        notifier = SlackNotifier(webhook_url)
+        if notifier.send_papers(all_papers_sections[0][1]):
             success_count += 1
 
     if success_count > 0:
-        logger.info(f"完了しました（{success_count}件送信）")
+        logger.info(f"完了しました（{success_count}件送信、全{total_papers}件）")
     else:
         logger.error("すべての送信に失敗しました")
         sys.exit(1)
