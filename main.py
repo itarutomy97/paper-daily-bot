@@ -148,6 +148,68 @@ class SemanticScholarClient:
         return papers
 
 
+class HuggingFaceDailyFetcher:
+    """Hugging Face Daily Papers APIで人気順に論文を取得"""
+
+    def __init__(self, limit: int = 50):
+        self.base_url = "https://huggingface.co/api/daily_papers"
+        self.limit = limit
+
+    def fetch_papers(self, keyword: Optional[str] = None) -> List[Paper]:
+        """
+        Hugging Face Daily Papersからupvotes順に論文取得
+
+        Args:
+            keyword: オプションのキーワードフィルタ（例: "RAG"）
+
+        Returns:
+            論文リスト（upvotes降順）
+        """
+        logger.info(f"Hugging Face Daily Papersから論文を取得します: limit={self.limit}")
+
+        try:
+            params = {"limit": self.limit}
+            response = requests.get(self.base_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            papers = []
+            for item in data:
+                paper_data = item.get("paper", item)
+                paper_id = paper_data.get("id", "")
+
+                # Hugging Face IDをarXiv IDに変換（例: 2602.02016 -> 2602.02016）
+                if "." not in paper_id:
+                    continue
+
+                # キーワードフィルタ
+                if keyword:
+                    title = paper_data.get("title", "").lower()
+                    summary = paper_data.get("summary", "").lower()
+                    if keyword.lower() not in title and keyword.lower() not in summary:
+                        continue
+
+                paper = Paper(
+                    title=paper_data.get("title", ""),
+                    authors=[a.get("name", "") for a in paper_data.get("authors", [])],
+                    summary=paper_data.get("summary", ""),
+                    published=datetime.fromisoformat(paper_data.get("publishedAt", "").replace("Z", "+00:00")),
+                    url=f"https://huggingface.co/papers/{paper_id}",
+                    pdf_url=f"https://arxiv.org/pdf/{paper_id}.pdf",
+                    arxiv_id=paper_id,
+                    citation_count=paper_data.get("upvotes", 0),  # upvotesをスコアとして使用
+                    ai_summary=paper_data.get("ai_summary")
+                )
+                papers.append(paper)
+
+            logger.info(f"Hugging Faceから{len(papers)}件の論文を取得しました")
+            return papers
+
+        except Exception as e:
+            logger.error(f"Hugging Face取得エラー: {e}")
+            return []
+
+
 class LLMSummarizer:
     """LLMで要約を生成するクラス"""
 
@@ -372,6 +434,8 @@ def main():
     query = os.getenv("ARXIV_QUERY", "cat:cs.AI OR cat:cs.LG")
     max_papers = int(os.getenv("MAX_PAPERS", "100"))
     min_citations = int(os.getenv("MIN_CITATIONS", "0"))
+    use_huggingface = os.getenv("USE_HUGGINGFACE", "true").lower() == "true"
+    keyword_filter = os.getenv("KEYWORD_FILTER", "")  # 例: "RAG" でRAG関連のみ
 
     # 通知先（Slack or Email）
     webhook_url = os.getenv("SLACK_WEBHOOK_URL")
@@ -383,33 +447,44 @@ def main():
         logger.error("通知先が設定されていません（SLACK_WEBHOOK_URL または RESEND_API_KEY + EMAIL_TO）")
         sys.exit(1)
 
-    # 1. arXivから論文取得
-    fetcher = ArxivFetcher(query, max_papers)
-    papers = fetcher.fetch_papers(days_back=1)
+    # 1. 論文取得（Hugging Face or arXiv）
+    if use_huggingface:
+        logger.info("Hugging Face Daily Papersを使用します")
+        fetcher = HuggingFaceDailyFetcher(limit=max_papers)
+        papers = fetcher.fetch_papers(keyword=keyword_filter if keyword_filter else None)
+    else:
+        logger.info("arXiv APIを使用します")
+        fetcher = ArxivFetcher(query, max_papers)
+        papers = fetcher.fetch_papers(days_back=1)
 
     if not papers:
         logger.info("新しい論文はありませんでした")
         return
 
-    # 2. Semantic Scholarで情報付与
-    api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-    if api_key or True:  # APIキーなしでも無料枠で動作
-        semantic_client = SemanticScholarClient(api_key)
-        papers = semantic_client.enrich_papers(papers)
+    # Hugging Faceの場合は既にupvotes順なのでソート不要
+    if use_huggingface:
+        papers = papers[:10]  # Top10
+        logger.info(f"Hugging Face人気Top10: {len(papers)}件（最高upvotes={papers[0].citation_count if papers else 0}）")
+    else:
+        # 2. Semantic Scholarで情報付与
+        api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+        if api_key or True:  # APIキーなしでも無料枠で動作
+            semantic_client = SemanticScholarClient(api_key)
+            papers = semantic_client.enrich_papers(papers)
 
-    # 3. フィルタリング
-    papers = filter_papers(papers, min_citations)
+        # 3. フィルタリング
+        papers = filter_papers(papers, min_citations)
 
-    if not papers:
-        logger.info("フィルタ後、論文がありませんでした")
-        return
+        if not papers:
+            logger.info("フィルタ後、論文がありませんでした")
+            return
 
-    # 人気順（引用数降順）にソートしてTop10
-    papers = sorted(papers, key=lambda p: p.citation_count, reverse=True)
-    papers = papers[:10]
-    logger.info(f"人気Top10: {len(papers)}件（最高引用数={papers[0].citation_count if papers else 0}）")
+        # 人気順（引用数降順）にソートしてTop10
+        papers = sorted(papers, key=lambda p: p.citation_count, reverse=True)
+        papers = papers[:10]
+        logger.info(f"人気Top10: {len(papers)}件（最高引用数={papers[0].citation_count if papers else 0}）")
 
-    # 4. LLMで要約（オプション）
+    # 4. LLMで要約（オプション、Hugging Faceにはai_summaryがあるのでスキップ可能）
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -419,7 +494,9 @@ def main():
         if summarizer.enabled:
             logger.info("要約を生成します...")
             for paper in papers:
-                paper.ai_summary = summarizer.summarize(paper)
+                # Hugging Faceのai_summaryがなければ生成
+                if not paper.ai_summary:
+                    paper.ai_summary = summarizer.summarize(paper)
 
     # 5. 通知送信
     success_count = 0

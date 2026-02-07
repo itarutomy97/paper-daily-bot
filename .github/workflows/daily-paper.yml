@@ -26,9 +26,14 @@ jobs:
 
       - name: Run paper bot
         env:
+          # arXiv Settings
           ARXIV_QUERY: ${{ vars.ARXIV_QUERY }}
           MAX_PAPERS: ${{ vars.MAX_PAPERS }}
           DAYS_BACK: ${{ vars.DAYS_BACK }}
+          # Hugging Face（推奨）
+          USE_HUGGINGFACE: ${{ vars.USE_HUGGINGFACE }}
+          KEYWORD_FILTER: ${{ vars.KEYWORD_FILTER }}
+          # Filter
           MIN_CITATIONS: ${{ vars.MIN_CITATIONS }}
           # Slack (optional)
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
