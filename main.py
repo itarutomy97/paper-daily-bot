@@ -475,11 +475,13 @@ def main():
         if general_papers:
             all_papers_sections.append(("人気Top10", general_papers[:10]))
 
-        # キーワード関連のTop10
+        # キーワード関連のTop10（カンマ区切りで複数指定可能）
         if keyword_filter:
-            keyword_papers = fetcher.fetch_papers(keyword=keyword_filter)
-            if keyword_papers:
-                all_papers_sections.append((f"{keyword_filter} Top10", keyword_papers[:10]))
+            keywords = [k.strip() for k in keyword_filter.split(",") if k.strip()]
+            for kw in keywords:
+                keyword_papers = fetcher.fetch_papers(keyword=kw)
+                if keyword_papers:
+                    all_papers_sections.append((f"{kw} Top10", keyword_papers[:10]))
 
         if not all_papers_sections:
             logger.info("新しい論文はありませんでした")
