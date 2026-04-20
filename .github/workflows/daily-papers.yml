@@ -35,6 +35,8 @@ jobs:
           MAX_PAPERS: ${{ vars.MAX_PAPERS }}
           DAYS_BACK: ${{ vars.DAYS_BACK }}
           MIN_CITATIONS: ${{ vars.MIN_CITATIONS }}
+          USE_HUGGINGFACE: ${{ vars.USE_HUGGINGFACE }}
+          KEYWORD_FILTER: ${{ vars.KEYWORD_FILTER }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
