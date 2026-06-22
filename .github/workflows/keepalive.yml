@@ -1,0 +1,17 @@
+name: Keepalive
+
+# 60日間リポジトリ活動がないとscheduleが自動停止されるのを防ぐため、
+# 月に2回 (1日と15日 00:00 UTC) 空のジョブを実行してactivityを発生させる。
+on:
+  schedule:
+    - cron: '0 0 1,15 * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep workflows alive
+        run: echo "keepalive ping at $(date -u +%FT%TZ)"
