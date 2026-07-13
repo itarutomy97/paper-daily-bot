@@ -9,6 +9,8 @@ on:
 jobs:
   fetch-papers:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -48,3 +50,15 @@ jobs:
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           SUMMARY_MAX_LENGTH: ${{ vars.SUMMARY_MAX_LENGTH }}
         run: python main.py
+
+      - name: Commit sent IDs state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/sent_arxiv_ids.json
+          if git diff --cached --quiet; then
+            echo "sent_arxiv_ids.json に変更なし、コミットをスキップ"
+          else
+            git commit -m "chore: update sent paper IDs [skip ci]"
+            git push
+          fi

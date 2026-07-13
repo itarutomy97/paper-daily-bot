@@ -5,8 +5,10 @@ Paper Slack Bot - 論文を収集してSlackに投稿するボット
 
 import os
 import sys
+import json
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
@@ -432,6 +434,52 @@ class EmailNotifier:
             return False
 
 
+class SentPapersStore:
+    """既に送信した論文のarxiv_idを記録するストア（重複送信防止用）"""
+
+    def __init__(self, file_path: str = "data/sent_arxiv_ids.json", retention_days: int = 30):
+        self.file_path = Path(file_path)
+        self.retention_days = retention_days
+        self._data: Dict[str, str] = {}
+        self._snapshot_at_load: set = set()
+        self._load()
+
+    def _load(self) -> None:
+        if self.file_path.exists():
+            try:
+                with self.file_path.open("r", encoding="utf-8") as f:
+                    self._data = json.load(f)
+                logger.info(f"送信済みID {len(self._data)}件を読み込みました: {self.file_path}")
+            except Exception as e:
+                logger.warning(f"送信済みIDファイルの読み込みに失敗（新規作成扱い）: {e}")
+                self._data = {}
+        else:
+            logger.info(f"送信済みIDファイルが存在しないので新規作成します: {self.file_path}")
+
+        self._prune()
+        self._snapshot_at_load = set(self._data.keys())
+
+    def _prune(self) -> None:
+        cutoff = (datetime.now() - timedelta(days=self.retention_days)).strftime("%Y-%m-%d")
+        before = len(self._data)
+        self._data = {aid: d for aid, d in self._data.items() if d >= cutoff}
+        pruned = before - len(self._data)
+        if pruned > 0:
+            logger.info(f"{self.retention_days}日超の古い送信済みID {pruned}件を削除しました")
+
+    def is_sent(self, arxiv_id: str) -> bool:
+        return arxiv_id in self._snapshot_at_load
+
+    def mark_sent(self, arxiv_id: str) -> None:
+        self._data[arxiv_id] = datetime.now().strftime("%Y-%m-%d")
+
+    def save(self) -> None:
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.file_path.open("w", encoding="utf-8") as f:
+            json.dump(self._data, f, ensure_ascii=False, indent=2, sort_keys=True)
+        logger.info(f"送信済みID {len(self._data)}件を保存しました: {self.file_path}")
+
+
 def filter_papers(papers: List[Paper], min_citations: int = 0) -> List[Paper]:
     """論文をフィルタリング"""
     filtered = [p for p in papers if p.citation_count >= min_citations]
@@ -463,6 +511,17 @@ def main():
         logger.error("通知先が設定されていません（SLACK_WEBHOOK_URL または RESEND_API_KEY + EMAIL_TO）")
         sys.exit(1)
 
+    # 送信済みIDストア（重複送信防止）
+    sent_store = SentPapersStore()
+
+    def _dedup(papers: List[Paper]) -> List[Paper]:
+        before = len(papers)
+        filtered = [p for p in papers if not sent_store.is_sent(p.arxiv_id)]
+        skipped = before - len(filtered)
+        if skipped > 0:
+            logger.info(f"送信済み論文 {skipped}件をスキップしました（残り{len(filtered)}件）")
+        return filtered
+
     # 1. 論文取得（Hugging Face or arXiv）
     all_papers_sections = []  # 複数セクション用
 
@@ -471,7 +530,7 @@ def main():
         fetcher = HuggingFaceDailyFetcher(limit=max_papers)
 
         # 通常のTop10
-        general_papers = fetcher.fetch_papers(keyword=None)
+        general_papers = _dedup(fetcher.fetch_papers(keyword=None))
         if general_papers:
             all_papers_sections.append(("人気Top10", general_papers[:10]))
 
@@ -479,21 +538,21 @@ def main():
         if keyword_filter:
             keywords = [k.strip() for k in keyword_filter.split(",") if k.strip()]
             for kw in keywords:
-                keyword_papers = fetcher.fetch_papers(keyword=kw)
+                keyword_papers = _dedup(fetcher.fetch_papers(keyword=kw))
                 if keyword_papers:
                     all_papers_sections.append((f"{kw} Top10", keyword_papers[:10]))
 
         if not all_papers_sections:
-            logger.info("新しい論文はありませんでした")
+            logger.info("新しい論文はありませんでした（すべて送信済み）")
             return
 
     else:
         logger.info("arXiv APIを使用します")
         fetcher = ArxivFetcher(query, max_papers)
-        papers = fetcher.fetch_papers(days_back=1)
+        papers = _dedup(fetcher.fetch_papers(days_back=1))
 
         if not papers:
-            logger.info("新しい論文はありませんでした")
+            logger.info("新しい論文はありませんでした（すべて送信済み）")
             return
 
         all_papers_sections.append(("人気Top10", papers))
@@ -547,6 +606,11 @@ def main():
             success_count += 1
 
     if success_count > 0:
+        # 送信済みIDを記録して保存
+        for _, papers in all_papers_sections:
+            for paper in papers:
+                sent_store.mark_sent(paper.arxiv_id)
+        sent_store.save()
         logger.info(f"完了しました（{success_count}件送信、全{total_papers}件）")
     else:
         logger.error("すべての送信に失敗しました")
